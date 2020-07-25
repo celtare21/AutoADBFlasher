@@ -12,30 +12,44 @@ namespace ADB
     {
         static void Main(string[] args)
         {
-            AdbClient client = new AdbClient();
+            AdbClient client;
             List<DeviceData> devices;
-            DeviceData device;
             Fastboot fastboot;
             Fastboot.Response result, slot;
             DirectoryInfo dirInfo;
             FileInfo file;
-            string pattern = "*new*", slot_name;
+            string pattern = "*new*", flash_slot;
+            bool connected = false;
+
+            fastboot = new Fastboot();
 
             client = new AdbClient();
             do
             {
-
                 devices = client.GetDevices();
                 if (devices.Count == 0)
                 {
-                    Console.WriteLine("No adb devices found! Sleeping 1.5s.");
-                    Thread.Sleep(1500);
-                }
-            } while (devices.Count == 0);
-            Console.WriteLine("\nDevice found!\n");
+                    Console.WriteLine("No adb devices found! Sleeping 1.5s and checking if system is in fastboot.");
 
-            device = devices.First();
-            client.ExecuteRemoteCommand("reboot bootloader", device, null);
+                    try
+                    {
+                        fastboot.Connect();
+                        Console.WriteLine("\nFound fastboot device!\n");
+                        connected = true;
+                    }
+                    catch
+                    {
+                        Console.WriteLine("No fastboot devices found!");
+                        Thread.Sleep(1500);
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("\nDevice found! Rebooting to bootloader.\n");
+
+                    client.ExecuteRemoteCommand("reboot bootloader", devices.First(), null);
+                }
+            } while (devices.Count == 0 && !connected);
 
             dirInfo = new DirectoryInfo("C:\\Users\\Kuran Kaname\\Downloads");
             do
@@ -58,33 +72,32 @@ namespace ADB
             } while (file.ToString().Contains("crdownload"));
             Console.WriteLine($"\nFound file: {file.Name}\n");
 
-            fastboot = new Fastboot();
-            do
+            while (!connected)
             {
                 try
                 {
                     fastboot.Connect();
-                    break;
+                    connected = true;
+                    Console.WriteLine("\nFastboot device found!");
                 }
                 catch
                 {
                     Console.WriteLine("No fastboot devices found! Sleeping 1.5s.");
                     Thread.Sleep(1500);
                 }
-            } while (true);
+            }
 
-            Console.WriteLine("\nFastboot device found!");
             slot = fastboot.Command("getvar:current-slot");
             Console.WriteLine($"Current slot is: {slot.Payload}");
 
             fastboot.UploadData($"{file.Directory}\\{file.Name}");
 
             if (string.Equals(slot.Payload, "a"))
-                slot_name = "flash:boot_a";
+                flash_slot = "flash:boot_a";
             else
-                slot_name = "flash:boot_b";
+                flash_slot = "flash:boot_b";
 
-            result = fastboot.Command(slot_name);
+            result = fastboot.Command(flash_slot);
             if (string.Equals(result.Status.ToString(), "Okay"))
             {
                 Console.WriteLine("Flash succesful! Rebooting!");
