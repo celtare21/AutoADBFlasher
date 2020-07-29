@@ -12,14 +12,39 @@ namespace ADB
     {
         static void Main(string[] args)
         {
+            AdbServer server;
             AdbClient client;
             List<DeviceData> devices;
+            StartServerResult server_result;
             Fastboot fastboot;
             Fastboot.Response result, slot;
             DirectoryInfo dirInfo;
             FileInfo file;
             string pattern = "*new*", flash_slot;
             bool connected = false;
+
+            server = new AdbServer();
+            try
+            {
+                server_result = server.StartServer(@"C:\Program Files (x86)\Essential\ADB\adb.exe", restartServerIfNewer: false);
+            }
+            catch (FileNotFoundException)
+            {
+                Console.WriteLine("ADB path not found!");
+                Console.ReadKey();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception {ex} occured!");
+                Console.ReadKey();
+                return;
+            }
+
+            if (server_result.ToString().Equals("Started"))
+                Console.WriteLine("ADB server started!\n");
+            else
+                Console.WriteLine("ADB server already started!\n");
 
             fastboot = new Fastboot();
 
