@@ -19,8 +19,8 @@ namespace ADB
             Fastboot fastboot;
             Fastboot.Response result, slot;
             DirectoryInfo dirInfo;
-            FileInfo file;
-            string pattern = "*new*", flash_slot;
+            FileInfo file = null;
+            string pattern = "*new*", pattern_downloading = "*Unconfirmed*", flash_slot;
             bool connected = false;
 
             server = new AdbServer();
@@ -81,19 +81,30 @@ namespace ADB
             {
                 try
                 {
-                    file = (from f in dirInfo.GetFiles(pattern) orderby f.LastWriteTime descending select f).First();
+                    file = (from f in dirInfo.GetFiles(pattern_downloading) orderby f.LastWriteTime descending select f).First();
+                    if (file.Exists)
+                    {
+                        Console.WriteLine("File is still downloading! Sleeping 1.5s.");
+                        Thread.Sleep(1500);
+                        continue;
+                    }
                 }
                 catch (InvalidOperationException)
                 {
-                    Console.WriteLine("No file found!");
-                    Console.ReadKey();
+                    try
+                    {
+                        file = (from f in dirInfo.GetFiles(pattern) orderby f.LastWriteTime descending select f).First();
+                        break;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        Console.WriteLine("No file found!");
+                        Console.ReadKey();
+                    }
                     return;
                 }
-                if (file.ToString().Contains("crdownload"))
-                {
-                    Console.WriteLine("File is still downloading! Sleeping 1.5s.");
-                    Thread.Sleep(1500);
-                }
+                Console.WriteLine("File is still downloading! Sleeping 1.5s.");
+                Thread.Sleep(1500);
             } while (file.ToString().Contains("crdownload"));
             Console.WriteLine($"\nFound file: {file.Name}\n");
 
