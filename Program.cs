@@ -17,10 +17,10 @@ namespace ADB
             List<DeviceData> devices;
             StartServerResult server_result;
             Fastboot fastboot;
-            Fastboot.Response result, slot;
+            Fastboot.Response result = null, slot;
             DirectoryInfo dirInfo;
             FileInfo file = null;
-            string pattern = "*new*", pattern_downloading = "*Unconfirmed*", flash_slot;
+            string pattern = "i*.img", pattern_downloading = "*Unconfirmed*", flash_slot = null;
             bool connected = false;
 
             server = new AdbServer();
@@ -101,8 +101,10 @@ namespace ADB
                         Console.WriteLine("No file found!");
                         Console.ReadKey();
                     }
+
                     return;
                 }
+
                 Console.WriteLine("File is still downloading! Sleeping 1.5s.");
                 Thread.Sleep(1500);
             } while (file.ToString().Contains("crdownload"));
@@ -128,19 +130,41 @@ namespace ADB
 
             fastboot.UploadData($"{file.Directory}\\{file.Name}");
 
-            if (string.Equals(slot.Payload, "a"))
+            if (slot.Payload.Contains("a"))
+            {
                 flash_slot = "flash:boot_a";
-            else
+            }
+            else if (slot.Payload.Contains("b"))
+            {
                 flash_slot = "flash:boot_b";
+            }
+            else
+            {
+                Console.WriteLine("No slot found!");
+                Console.ReadLine();
+                return;
+            }
 
-            result = fastboot.Command(flash_slot);
+            try
+            {
+                result = fastboot.Command(flash_slot);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Flash unsuccesful! Status: {ex}");
+                Console.ReadKey();
+                return;
+            }
+
             if (string.Equals(result.Status.ToString(), "Okay"))
             {
                 Console.WriteLine("Flash succesful! Rebooting!");
                 fastboot.Command("reboot");
             }
             else
+            {
                 Console.WriteLine($"Flash unsuccesful! Status: {result.Status}");
+            }
 
             Console.ReadKey();
         }
