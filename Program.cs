@@ -1,114 +1,96 @@
 ﻿using Potato.Fastboot;
 using SharpAdbClient;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace ADB
 {
-    class Program
+    internal static class Program
     {
-        static void Main(string[] args)
-        {
-            AdbServer server;
-            AdbClient client;
-            List<DeviceData> devices;
-            StartServerResult server_result;
-            Fastboot fastboot;
-            Fastboot.Response result = null, slot;
-            DirectoryInfo dirInfo;
-            FileInfo file = null;
-            string pattern = "i*.img", pattern_downloading = "*Unconfirmed*", flash_slot = null;
-            bool connected = false;
+        private const string Pattern = "i*.img";
+        private const string PatternDownloading = "*Unconfirmed*";
 
-            server = new AdbServer();
+        private static async Task Main()
+        {
+            StartServerResult serverResult;
+            var server = new AdbServer();
+
             try
             {
-                server_result = server.StartServer(@"C:\Program Files (x86)\Essential\ADB\adb.exe", restartServerIfNewer: false);
+                serverResult = server.StartServer(@"C:\Program Files (x86)\Essential\ADB\adb.exe", false);
             }
             catch (FileNotFoundException)
             {
                 Console.WriteLine("ADB path not found!");
-                Console.ReadKey();
-                return;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Exception {ex} occured!");
-                Console.ReadKey();
+                await Task.Delay(1500);
                 return;
             }
 
-            if (server_result.ToString().Equals("Started"))
-                Console.WriteLine("ADB server started!\n");
-            else
-                Console.WriteLine("ADB server already started!\n");
+            Console.WriteLine(serverResult == StartServerResult.Started
+                ? "ADB server started!"
+                : "ADB server already started!");
 
-            fastboot = new Fastboot();
+            DeviceData device;
+            var fastboot = new Fastboot();
+            var connected = false;
+            var client = new AdbClient();
 
-            client = new AdbClient();
             do
             {
-                devices = client.GetDevices();
-                if (devices.Count == 0)
+                device = client.GetDevices().FirstOrDefault();
+                if (device == null)
                 {
-                    Console.WriteLine("No adb devices found! Sleeping 1.5s and checking if system is in fastboot.");
+                    Console.WriteLine("No adb devices found! Checking if system is in fastboot and sleeping 1.5s.");
 
                     try
                     {
                         fastboot.Connect();
-                        Console.WriteLine("\nFound fastboot device!\n");
+                        Console.WriteLine("Found fastboot device!");
                         connected = true;
                     }
                     catch
                     {
                         Console.WriteLine("No fastboot devices found!");
-                        Thread.Sleep(1500);
+                        await Task.Delay(1500);
                     }
                 }
                 else
                 {
-                    Console.WriteLine("\nDevice found! Rebooting to bootloader.\n");
+                    Console.WriteLine("Device found! Rebooting to bootloader.");
 
-                    client.ExecuteRemoteCommand("reboot bootloader", devices.First(), null);
+                    client.ExecuteRemoteCommand("reboot bootloader", device, null);
                 }
-            } while (devices.Count == 0 && !connected);
+            } while (device == null && !connected);
 
-            dirInfo = new DirectoryInfo("C:\\Users\\Kuran Kaname\\Downloads");
+            FileInfo file;
+            var dirInfo = new DirectoryInfo(@"C:\Users\Kuran Kaname\Downloads");
+            bool firstCycle = true;
+
             do
             {
-                try
+                file = (from f in dirInfo.GetFiles(PatternDownloading) orderby f.LastWriteTime descending select f)
+                    .FirstOrDefault() ??
+                    (from f in dirInfo.GetFiles(Pattern) orderby f.LastWriteTime descending select f)
+                    .FirstOrDefault();
+
+                if (file?.Name.Contains("crdownload") ?? true)
                 {
-                    file = (from f in dirInfo.GetFiles(pattern_downloading) orderby f.LastWriteTime descending select f).First();
-                    if (file.Exists)
+                    if (firstCycle)
                     {
-                        Console.WriteLine("File is still downloading! Sleeping 1.5s.");
-                        Thread.Sleep(1500);
-                        continue;
-                    }
-                }
-                catch (InvalidOperationException)
-                {
-                    try
-                    {
-                        file = (from f in dirInfo.GetFiles(pattern) orderby f.LastWriteTime descending select f).First();
-                        break;
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        Console.WriteLine("No file found!");
-                        Console.ReadKey();
+                        Console.WriteLine();
+                        firstCycle = false;
                     }
 
-                    return;
+                    Console.WriteLine("File is still downloading! Sleeping 1.5s.");
+                    await Task.Delay(1500);
                 }
+            } while (file?.Name.Contains("crdownload") ?? true);
 
-                Console.WriteLine("File is still downloading! Sleeping 1.5s.");
-                Thread.Sleep(1500);
-            } while (file.ToString().Contains("crdownload"));
-            Console.WriteLine($"\nFound file: {file.Name}\n");
+            Console.WriteLine();
+            Console.WriteLine($"Found file: {file.Name}");
+            Console.WriteLine();
 
             while (!connected)
             {
@@ -116,47 +98,40 @@ namespace ADB
                 {
                     fastboot.Connect();
                     connected = true;
-                    Console.WriteLine("\nFastboot device found!");
+                    Console.WriteLine("Fastboot device found!");
                 }
                 catch
                 {
                     Console.WriteLine("No fastboot devices found! Sleeping 1.5s.");
-                    Thread.Sleep(1500);
+                    await Task.Delay(1500);
                 }
             }
 
-            slot = fastboot.Command("getvar:current-slot");
+            var slot = fastboot.Command("getvar:current-slot");
             Console.WriteLine($"Current slot is: {slot.Payload}");
 
-            fastboot.UploadData($"{file.Directory}\\{file.Name}");
+            fastboot.UploadData($@"{file.Directory}\{file.Name}");
+
+            string flashSlot;
 
             if (slot.Payload.Contains("a"))
             {
-                flash_slot = "flash:boot_a";
+                flashSlot = "flash:boot_a";
             }
             else if (slot.Payload.Contains("b"))
             {
-                flash_slot = "flash:boot_b";
+                flashSlot = "flash:boot_b";
             }
             else
             {
                 Console.WriteLine("No slot found!");
-                Console.ReadLine();
+                await Task.Delay(2500);
                 return;
             }
 
-            try
-            {
-                result = fastboot.Command(flash_slot);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Flash unsuccesful! Status: {ex}");
-                Console.ReadKey();
-                return;
-            }
+            Fastboot.Response result = fastboot.Command(flashSlot);
 
-            if (string.Equals(result.Status.ToString(), "Okay"))
+            if (result.Status == Fastboot.Status.Okay)
             {
                 Console.WriteLine("Flash succesful! Rebooting!");
                 fastboot.Command("reboot");
@@ -166,7 +141,7 @@ namespace ADB
                 Console.WriteLine($"Flash unsuccesful! Status: {result.Status}");
             }
 
-            Console.ReadKey();
+            await Task.Delay(2500).ConfigureAwait(false);
         }
     }
 }
